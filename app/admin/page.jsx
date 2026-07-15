@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase'; // Supabase istemcimiz
+import { supabase } from '@/lib/supabase'; // Next.js @/ takısı ile yolları daha güvenli bulur
 
 export default function AdminDashboard() {
   const [session, setSession] = useState(null);
@@ -40,13 +40,11 @@ export default function AdminDashboard() {
 
   // 1. ADIM: Kullanıcı Oturumunu Kontrol Et
   useEffect(() => {
-    // Mevcut oturumu al
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setAuthLoading(false);
     });
 
-    // Oturum değişikliklerini dinle
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
@@ -55,28 +53,28 @@ export default function AdminDashboard() {
   }, []);
 
   // 2. ADIM: Oturum varsa Restoranları Yükle
-  async function fetchRestaurants() {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase.from('restaurants').select('*');
-      if (!error && data.length > 0) {
-        setRestaurants(data);
-        if (!selectedRestaurantId) {
-          setSelectedRestaurantId(data[0].id);
-        }
-      }
-    } catch (err) {
-      console.error("Restoranlar yüklenirken hata:", err);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   useEffect(() => {
+    async function fetchRestaurants() {
+      try {
+        setLoading(true);
+        const { data, error } = await supabase.from('restaurants').select('*');
+        if (!error && data && data.length > 0) {
+          setRestaurants(data);
+          if (!selectedRestaurantId) {
+            setSelectedRestaurantId(data[0].id);
+          }
+        }
+      } catch (err) {
+        console.error("Restoranlar yüklenirken hata:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
     if (session) {
       fetchRestaurants();
     }
-  }, [session]);
+  }, [session, selectedRestaurantId]);
 
   // 3. ADIM: Seçili restorana ait kategori ve ürünleri çek
   useEffect(() => {
@@ -332,7 +330,7 @@ export default function AdminDashboard() {
           <nav className="space-y-1.5">
             <button 
               onClick={() => setActiveTab('dashboard')} 
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+              className={`w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
                 activeTab === 'dashboard' 
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/10' 
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
@@ -343,7 +341,7 @@ export default function AdminDashboard() {
             
             <button 
               onClick={() => setActiveTab('menu')} 
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+              className={`w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
                 activeTab === 'menu' 
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/10' 
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
@@ -354,7 +352,7 @@ export default function AdminDashboard() {
 
             <button 
               onClick={() => setActiveTab('add-store')} 
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+              className={`w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
                 activeTab === 'add-store' 
                   ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/10' 
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
@@ -365,7 +363,7 @@ export default function AdminDashboard() {
 
             <button 
               onClick={() => setActiveTab('themes')} 
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+              className={`w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
                 activeTab === 'themes' 
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/10' 
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
@@ -406,7 +404,7 @@ export default function AdminDashboard() {
         {/* HEADER */}
         <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-800">
           <div>
-            <h2 className="text-2xl font-bold text-white tracking-tight">
+            <h2 className="text-2xl font-bold text-white tracking-tight font-sans">
               {activeTab === 'dashboard' && 'Genel Bakış'}
               {activeTab === 'menu' && 'Menü Yönetimi'}
               {activeTab === 'add-store' && 'Mağaza Ekle'}
@@ -431,6 +429,10 @@ export default function AdminDashboard() {
                 <span className="text-xs font-semibold text-slate-400 block mb-2 uppercase">Aktif Şema</span>
                 <h3 className="text-2xl font-bold text-white">{selectedRest?.theme === 'blue' ? 'Mavi Neon' : 'Turuncu Amber'}</h3>
                 <p className="text-[10px] text-slate-500 mt-1">Şema ve QR sayfasından değiştirilebilir.</p>
+              </div>
+              <div className="bg-[#0B0F19] border border-slate-800/80 p-5 rounded-2xl flex flex-col justify-center">
+                <span className="text-xs font-semibold text-slate-400 block mb-2 uppercase">Yüklenme Durumu</span>
+                <h3 className="text-xl font-bold text-emerald-400">{loading ? 'Güncelleniyor...' : 'Veriler Güvenli'}</h3>
               </div>
             </div>
 
@@ -637,7 +639,7 @@ export default function AdminDashboard() {
                   className="w-32 h-32" 
                 />
               </div>
-              <p className="text-[10px] text-slate-500">Müşterileri https://gelircebinde.com/{selectedRest?.slug} adresine yönlendirir.</p>
+              <p className="text-[10px] text-slate-500 font-sans">Müşterileri https://gelircebinde.com/{selectedRest?.slug || 'antiochia'} adresine yönlendirir.</p>
             </div>
           </div>
         )}
