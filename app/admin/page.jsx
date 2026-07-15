@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase'; // Next.js @/ takısı ile yolları daha güvenli bulur
+import { supabase } from '@/lib/supabase';
 
 export default function AdminDashboard() {
   const [session, setSession] = useState(null);
@@ -38,7 +38,7 @@ export default function AdminDashboard() {
   const [saving, setSaving] = useState(false);
   const [savingStore, setSavingStore] = useState(false);
 
-  // 1. ADIM: Kullanıcı Oturumunu Kontrol Et
+  // 1. ADIM: Sadece Supabase Auth Oturumunu Dinle (Profil tablosu kontrolünü kaldırdık)
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -123,13 +123,15 @@ export default function AdminDashboard() {
     setLoginError('');
     setLoggingIn(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) {
       setLoginError("Giriş başarısız! Bilgilerinizi kontrol edin.");
+    } else if (data?.session) {
+      setSession(data.session);
     }
     setLoggingIn(false);
   };
@@ -137,6 +139,7 @@ export default function AdminDashboard() {
   // Çıkış Yapma Fonksiyonu
   const handleLogout = async () => {
     await supabase.auth.signOut();
+    setSession(null);
   };
 
   // Yeni Mağaza Ekleme Fonksiyonu
