@@ -4,15 +4,23 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase'; // Supabase istemcimiz
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   
-  // Veritabanı State'leri
+  // Giriş Formu State'leri
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loggingIn, setLoggingIn] = useState(false);
+
+  // Yönetim Paneli State'leri
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [restaurants, setRestaurants] = useState([]);
   const [selectedRestaurantId, setSelectedRestaurantId] = useState('');
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
   
-  // Form State'leri (Yeni Ürün Ekleme için)
+  // Ürün Ekleme State'leri
   const [productName, setProductName] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [price, setPrice] = useState('');
@@ -20,24 +28,39 @@ export default function AdminDashboard() {
   const [imageUrl, setImageUrl] = useState('');
   const [isPopular, setIsPopular] = useState(false);
 
-  // Form State'leri (Yeni Mağaza/Restoran Ekleme için)
+  // Mağaza Ekleme State'leri
   const [newRestName, setNewRestName] = useState('');
   const [newRestSlug, setNewRestSlug] = useState('');
   const [newRestTheme, setNewRestTheme] = useState('blue');
 
-  // Yüklenme ve İşlem Durumları
+  // Yüklenme Durumları
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingStore, setSavingStore] = useState(false);
 
-  // 1. ADIM: Sayfa açıldığında restoranları yükle
+  // 1. ADIM: Kullanıcı Oturumunu Kontrol Et
+  useEffect(() => {
+    // Mevcut oturumu al
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setAuthLoading(false);
+    });
+
+    // Oturum değişikliklerini dinle
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // 2. ADIM: Oturum varsa Restoranları Yükle
   async function fetchRestaurants() {
     try {
       setLoading(true);
       const { data, error } = await supabase.from('restaurants').select('*');
       if (!error && data.length > 0) {
         setRestaurants(data);
-        // Eğer daha önce seçilmiş bir mağaza yoksa ilkini seç
         if (!selectedRestaurantId) {
           setSelectedRestaurantId(data[0].id);
         }
@@ -50,16 +73,17 @@ export default function AdminDashboard() {
   }
 
   useEffect(() => {
-    fetchRestaurants();
-  }, []);
+    if (session) {
+      fetchRestaurants();
+    }
+  }, [session]);
 
-  // 2. ADIM: Seçili restorana ait kategori ve ürünleri çek
+  // 3. ADIM: Seçili restorana ait kategori ve ürünleri çek
   useEffect(() => {
-    if (!selectedRestaurantId) return;
+    if (!selectedRestaurantId || !session) return;
 
     async function fetchMenuDetails() {
       try {
-        // Kategorileri getir
         const { data: catData, error: catError } = await supabase
           .from('categories')
           .select('*')
@@ -69,13 +93,12 @@ export default function AdminDashboard() {
         if (!catError && catData) {
           setCategories(catData);
           if (catData.length > 0) {
-            setCategoryId(catData[0].id); // İlk kategoriyi formda varsayılan seç
+            setCategoryId(catData[0].id);
           } else {
             setCategoryId('');
           }
         }
 
-        // Ürünleri getir
         if (catData && catData.length > 0) {
           const { data: prodData, error: prodError } = await supabase
             .from('products')
@@ -94,29 +117,47 @@ export default function AdminDashboard() {
     }
 
     fetchMenuDetails();
-  }, [selectedRestaurantId]);
+  }, [selectedRestaurantId, session]);
 
-  // 3. ADIM: Yeni Mağaza (Restoran) Ekleme Fonksiyonu
+  // Giriş Yapma Fonksiyonu
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoginError('');
+    setLoggingIn(true);
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      setLoginError("Giriş başarısız! Bilgilerinizi kontrol edin.");
+    }
+    setLoggingIn(false);
+  };
+
+  // Çıkış Yapma Fonksiyonu
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
+  // Yeni Mağaza Ekleme Fonksiyonu
   const handleAddRestaurant = async (e) => {
     e.preventDefault();
     if (!newRestName || !newRestSlug) {
-      alert("Lütfen Mağaza Adı ve Mağaza Linki (Slug) alanlarını doldurun!");
+      alert("Lütfen tüm alanları doldurun!");
       return;
     }
 
     try {
       setSavingStore(true);
-
-      // Mağaza linkini küçük harfe çevir ve boşlukları tire yap (örn: Mavi Butik -> mavi-butik)
       const formattedSlug = newRestSlug.toLowerCase().trim().replace(/\s+/g, '-');
 
       const newStore = {
         name: newRestName,
         slug: formattedSlug,
         theme: newRestTheme,
-        // user_id zorunluluğunu SQL ile kaldırdıysak burası null gidebilir.
-        // Eğer kaldırmadıysak, auth kullanıcısı varsa onun id'sini gönderebiliriz.
-        user_id: (await supabase.auth.getUser()).data.user?.id || null 
+        user_id: session?.user?.id || null 
       };
 
       const { data, error } = await supabase
@@ -125,12 +166,11 @@ export default function AdminDashboard() {
         .select();
 
       if (error) {
-        alert("Mağaza eklenirken hata oluştu! user_id boş olamaz hatası alıyorsanız lütfen SQL editöründen RLS kilit kaldırma adımlarını uygulayın. Hata detayı: " + error.message);
+        alert("Hata: " + error.message);
       } else {
         alert("Yeni Mağaza Başarıyla Oluşturuldu!");
         setNewRestName('');
         setNewRestSlug('');
-        // Mağaza listesini yenile ve yeni ekleneni aktif yap
         if (data) {
           setRestaurants(prev => [...prev, data[0]]);
           setSelectedRestaurantId(data[0].id);
@@ -143,11 +183,11 @@ export default function AdminDashboard() {
     }
   };
 
-  // 4. ADIM: Yeni Ürün Ekleme Fonksiyonu
+  // Yeni Ürün Ekleme Fonksiyonu
   const handleAddProduct = async (e) => {
     e.preventDefault();
     if (!productName || !categoryId || !price) {
-      alert("Lütfen Ürün Adı, Kategori ve Fiyat alanlarını doldurun!");
+      alert("Lütfen gerekli alanları doldurun!");
       return;
     }
 
@@ -188,18 +228,14 @@ export default function AdminDashboard() {
     }
   };
 
-  // 5. ADIM: Ürün Silme Fonksiyonu
+  // Ürün Silme Fonksiyonu
   const handleDeleteProduct = async (id) => {
-    if (!confirm("Bu ürünü menüden silmek istediğinize emin misiniz?")) return;
+    if (!confirm("Bu ürünü silmek istediğinize emin misiniz?")) return;
 
     try {
-      const { error } = await supabase
-        .from('products')
-        .delete()
-        .eq('id', id);
-
+      const { error } = await supabase.from('products').delete().eq('id', id);
       if (error) {
-        alert("Ürün silinemedi: " + error.message);
+        alert("Silinemedi: " + error.message);
       } else {
         setProducts(prev => prev.filter(p => p.id !== id));
       }
@@ -208,14 +244,72 @@ export default function AdminDashboard() {
     }
   };
 
-  if (loading && restaurants.length === 0) {
+  if (authLoading) {
     return (
       <div className="min-h-screen bg-[#030712] flex items-center justify-center text-slate-400">
-        Yönetim Paneli Yükleniyor...
+        Güvenlik Kontrolü Yapılıyor...
       </div>
     );
   }
 
+  // OTURUM YOKSA: Giriş Ekranını Göster
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-[#030712] flex items-center justify-center px-4 font-sans">
+        <div className="w-full max-w-md bg-[#0B0F19] border border-slate-800/80 rounded-2xl p-8 shadow-2xl">
+          <div className="text-center mb-8">
+            <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center font-bold text-white text-2xl mx-auto mb-3 shadow-lg shadow-blue-500/20">
+              Q
+            </div>
+            <h2 className="text-xl font-bold text-white tracking-tight">Yönetim Paneli Girişi</h2>
+            <p className="text-xs text-slate-400 mt-1">Lütfen yönetici hesabı bilgilerinizle giriş yapın.</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            {loginError && (
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs py-2.5 px-4 rounded-xl text-center">
+                {loginError}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs text-slate-400 mb-1.5 font-medium">E-posta Adresi</label>
+              <input 
+                type="email" 
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="ornek@gelircebinde.com" 
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-blue-500 transition" 
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-slate-400 mb-1.5 font-medium">Şifre</label>
+              <input 
+                type="password" 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••" 
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-blue-500 transition" 
+                required
+              />
+            </div>
+
+            <button 
+              type="submit"
+              disabled={loggingIn}
+              className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs py-3 rounded-xl transition shadow-lg shadow-blue-500/10 disabled:opacity-50"
+            >
+              {loggingIn ? 'Giriş Yapılıyor...' : 'Güvenli Giriş Yap'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // OTURUM VARSA: Admin Panelini Göster
   const selectedRest = restaurants.find(r => r.id === selectedRestaurantId);
 
   return (
@@ -282,18 +376,27 @@ export default function AdminDashboard() {
           </nav>
         </div>
 
-        {/* Aktif Restoran Seçici */}
-        <div className="mt-8 pt-6 border-t border-slate-800">
-          <label className="block text-[10px] text-slate-500 mb-2 font-bold uppercase tracking-wider">Aktif Mağaza</label>
-          <select 
-            value={selectedRestaurantId} 
-            onChange={(e) => setSelectedRestaurantId(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+        {/* Alt Bölüm: Mağaza Seçimi ve Çıkış */}
+        <div className="mt-8 pt-6 border-t border-slate-800 space-y-4">
+          <div>
+            <label className="block text-[10px] text-slate-500 mb-2 font-bold uppercase tracking-wider">Aktif Mağaza</label>
+            <select 
+              value={selectedRestaurantId} 
+              onChange={(e) => setSelectedRestaurantId(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+            >
+              {restaurants.map(r => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <button 
+            onClick={handleLogout}
+            className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs py-2 rounded-lg font-bold transition"
           >
-            {restaurants.map(r => (
-              <option key={r.id} value={r.id}>{r.name}</option>
-            ))}
-          </select>
+            Sistemden Çıkış Yap
+          </button>
         </div>
       </aside>
 
@@ -331,7 +434,7 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Mevcut Ürünlerin Listesi (Silme Özellikli) */}
+            {/* Mevcut Ürünlerin Listesi */}
             <div className="bg-[#0B0F19] border border-slate-800/80 rounded-2xl overflow-hidden">
               <div className="p-5 border-b border-slate-800">
                 <h3 className="text-sm font-semibold text-white">Menüdeki Mevcut Ürünler</h3>
@@ -364,7 +467,7 @@ export default function AdminDashboard() {
           <div className="space-y-6">
             {categories.length === 0 ? (
               <div className="bg-[#0B0F19] border border-slate-800/80 p-8 rounded-2xl text-center">
-                <p className="text-xs text-slate-400">Önce Supabase üzerinden bu restorana ait bir kategori (örn: Ana Yemekler) oluşturmalısınız.</p>
+                <p className="text-xs text-slate-400">Önce Supabase üzerinden bu restorana ait bir kategori oluşturmalısınız.</p>
               </div>
             ) : (
               <form onSubmit={handleAddProduct} className="bg-[#0B0F19] border border-slate-800/80 p-5 rounded-2xl space-y-4">
@@ -451,7 +554,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* YENİ: 3. SEKME - MAĞAZA EKLE */}
+        {/* 3. SEKME: MAĞAZA EKLE */}
         {activeTab === 'add-store' && (
           <div className="space-y-6">
             <form onSubmit={handleAddRestaurant} className="bg-[#0B0F19] border border-slate-800/80 p-5 rounded-2xl space-y-4">
@@ -465,7 +568,6 @@ export default function AdminDashboard() {
                     value={newRestName}
                     onChange={(e) => {
                       setNewRestName(e.target.value);
-                      // Otomatik olarak slug oluştur (örn: Antiochia Dürüm -> antiochia-durum)
                       setNewRestSlug(e.target.value.toLowerCase().replace(/\s+/g, '-'));
                     }}
                     placeholder="Örn: Antiochia Dürüm" 
